@@ -135,7 +135,7 @@ suite "GossipSub internal":
 
       check gossipSub.fanout[topic].len == GossipSubD
 
-      await gossipSub.dropFanoutPeers()
+      gossipSub.dropFanoutPeers()
       check topic notin gossipSub.fanout
 
       await allFuturesThrowing(conns.mapIt(it.close()))
@@ -174,7 +174,7 @@ suite "GossipSub internal":
       check gossipSub.fanout[topic1].len == GossipSubD
       check gossipSub.fanout[topic2].len == GossipSubD
 
-      await gossipSub.dropFanoutPeers()
+      gossipSub.dropFanoutPeers()
       check topic1 notin gossipSub.fanout
       check topic2 in gossipSub.fanout
 
