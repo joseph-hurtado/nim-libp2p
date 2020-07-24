@@ -7,7 +7,6 @@
 ## This file may not be copied, modified, or distributed except according to
 ## those terms.
 
-import oids
 import chronos, chronicles
 import connection, ../utility
 
@@ -41,6 +40,7 @@ template withExceptions(body: untyped) =
   except TransportError:
     # TODO https://github.com/status-im/nim-chronos/pull/99
     raise newLPStreamEOFError()
+    # raise (ref LPStreamError)(msg: exc.msg, parent: exc)
 
 method readOnce*(s: ChronosStream, pbytes: pointer, nbytes: int): Future[int] {.async.} =
   if s.atEof:
@@ -73,18 +73,11 @@ method atEof*(s: ChronosStream): bool {.inline.} =
 method close*(s: ChronosStream) {.async.} =
   try:
     if not s.isClosed:
-      trace "shutting down chronos stream", address = $s.client.remoteAddress(),
-                                            oid = s.oid
+      await procCall Connection(s).close()
 
-      # TODO: the sequence here matters
-      # don't move it after the connections
-      # close bellow
+      trace "shutting down chronos stream", address = $s.client.remoteAddress(), oid = s.oid
       if not s.client.closed():
         await s.client.closeWait()
 
-      await procCall Connection(s).close()
-
-  except CancelledError as exc:
-    raise exc
   except CatchableError as exc:
     trace "error closing chronosstream", exc = exc.msg

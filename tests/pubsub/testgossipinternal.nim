@@ -57,8 +57,7 @@ suite "GossipSub internal":
       let gossipSub = newPubSub(TestGossipSub, randomPeerInfo())
 
       let topic = "foobar"
-      gossipSub.mesh[topic] = initHashSet[string]()
-      gossipSub.topics[topic] = Topic() # has to be in topics to rebalance
+      gossipSub.gossipsub[topic] = initHashSet[string]()
 
       var conns = newSeq[Connection]()
       for i in 0..<15:
@@ -68,9 +67,9 @@ suite "GossipSub internal":
         conn.peerInfo = peerInfo
         gossipSub.peers[peerInfo.id] = newPubSubPeer(peerInfo, GossipSubCodec)
         gossipSub.peers[peerInfo.id].conn = conn
-        gossipSub.mesh[topic].incl(peerInfo.id)
+        gossipSub.gossipsub[topic].incl(peerInfo.id)
 
-      check gossipSub.mesh[topic].len == 15
+      check gossipSub.gossipsub[topic].len == 15
       await gossipSub.rebalanceMesh(topic)
       check gossipSub.mesh[topic].len == GossipSubD
 
@@ -99,11 +98,10 @@ suite "GossipSub internal":
         conn.peerInfo = peerInfo
         gossipSub.peers[peerInfo.id] = newPubSubPeer(peerInfo, GossipSubCodec)
         gossipSub.peers[peerInfo.id].handler = handler
-        gossipSub.peers[peerInfo.id].topics &= topic
         gossipSub.gossipsub[topic].incl(peerInfo.id)
 
       check gossipSub.gossipsub[topic].len == 15
-      gossipSub.replenishFanout(topic)
+      await gossipSub.replenishFanout(topic)
       check gossipSub.fanout[topic].len == GossipSubD
 
       await allFuturesThrowing(conns.mapIt(it.close()))
