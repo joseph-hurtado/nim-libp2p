@@ -78,6 +78,7 @@ type
       secureManagers*: seq[Secure]
       pubSub*: Option[PubSub]
       dialLock: Table[string, AsyncLock]
+      cleanUpLock: Table[string, AsyncLock]
 
 proc newNoPubSubException(): ref NoPubSubException {.inline.} =
   result = newException(NoPubSubException, "no pubsub provided!")
@@ -252,45 +253,52 @@ proc cleanupConn(s: Switch, conn: Connection) {.async, gcsafe.} =
     if isNil(conn):
       return
 
-    defer:
-      await conn.close()
-      libp2p_peers.set(s.connections.len.int64)
-
     if isNil(conn.peerInfo):
       return
 
     let id = conn.peerInfo.id
-    trace "cleaning up connection for peer", peerId = id
-    if id in s.muxed:
-      let muxerHolder = s.muxed[id]
-        .filterIt(
-          it.muxer.connection == conn
-        )
+    let lock = s.cleanUpLock.mgetOrPut(id, newAsyncLock())
 
-      if muxerHolder.len > 0:
-        await muxerHolder[0].muxer.close()
-        if not(isNil(muxerHolder[0].handle)):
-          await muxerHolder[0].handle
-
+    try:
+      await lock.acquire()
+      trace "cleaning up connection for peer", peerId = id
       if id in s.muxed:
-        s.muxed[id].keepItIf(
-          it.muxer.connection != conn
+        let muxerHolder = s.muxed[id]
+          .filterIt(
+            it.muxer.connection == conn
+          )
+
+        if muxerHolder.len > 0:
+          await muxerHolder[0].muxer.close()
+          if not(isNil(muxerHolder[0].handle)):
+            await muxerHolder[0].handle
+
+        if id in s.muxed:
+          s.muxed[id].keepItIf(
+            it.muxer.connection != conn
+          )
+
+          if s.muxed[id].len == 0:
+            s.muxed.del(id)
+
+      if id in s.connections:
+        s.connections[id].keepItIf(
+          it.conn != conn
         )
 
-        if s.muxed[id].len == 0:
-          s.muxed.del(id)
+        if s.connections[id].len == 0:
+          s.connections.del(id)
 
-    if id in s.connections:
-      s.connections[id].keepItIf(
-        it.conn != conn
-      )
+      # TODO: Investigate cleanupConn() always called twice for one peer.
+      if not(conn.peerInfo.isClosed()):
+        conn.peerInfo.close()
+    finally:
+      await conn.close()
 
-      if s.connections[id].len == 0:
-        s.connections.del(id)
+      if lock.locked():
+        lock.release()
 
-    # TODO: Investigate cleanupConn() always called twice for one peer.
-    if not(conn.peerInfo.isClosed()):
-      conn.peerInfo.close()
+      libp2p_peers.set(s.connections.len.int64)
 
 proc disconnect*(s: Switch, peer: PeerInfo) {.async, gcsafe.} =
   let connections = s.connections.getOrDefault(peer.id)
