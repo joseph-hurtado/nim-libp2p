@@ -47,8 +47,8 @@ method subscribeTopic*(f: FloodSub,
     # unsubscribe the peer from the topic
     f.floodsub[topic].excl(peerId)
 
-method handleDisconnect*(f: FloodSub, peer: PubSubPeer) {.async.} =
-  await procCall PubSub(f).handleDisconnect(peer)
+method handleDisconnect*(f: FloodSub, peer: PubSubPeer) =
+  procCall PubSub(f).handleDisconnect(peer)
 
   ## handle peer disconnects
   for t in toSeq(f.floodsub.keys):

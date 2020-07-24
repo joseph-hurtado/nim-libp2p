@@ -236,11 +236,11 @@ proc heartbeat(g: GossipSub) {.async.} =
 
     await sleepAsync(1.seconds)
 
-method handleDisconnect*(g: GossipSub, peer: PubSubPeer) {.async.} =
+method handleDisconnect*(g: GossipSub, peer: PubSubPeer) =
   ## handle peer disconnects
   trace "peer disconnected", peer=peer.id
 
-  await procCall FloodSub(g).handleDisconnect(peer)
+  procCall FloodSub(g).handleDisconnect(peer)
 
   for t in toSeq(g.gossipsub.keys):
     if t in g.gossipsub:
@@ -248,9 +248,6 @@ method handleDisconnect*(g: GossipSub, peer: PubSubPeer) {.async.} =
 
     libp2p_gossipsub_peers_per_topic_gossipsub
       .set(g.gossipsub.getOrDefault(t).len.int64, labelValues = [t])
-
-    # mostly for metrics
-    await procCall PubSub(g).subscribeTopic(t, false, peer.id)
 
   for t in toSeq(g.mesh.keys):
     if t in g.mesh:

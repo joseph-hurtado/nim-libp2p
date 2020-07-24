@@ -98,20 +98,24 @@ method rpcHandler*(p: PubSub,
         trace "about to subscribe to topic", topicId = s.topic
         await p.subscribeTopic(s.topic, s.subscribe, peer.id)
 
-method handleDisconnect*(p: PubSub, peer: PubSubPeer) {.async, base.} =
+method handleDisconnect*(p: PubSub, peer: PubSubPeer) =
   ## handle peer disconnects
+  ##
   if peer.id in p.peers:
+    trace "deleting peer", peer = peer.id, stack = getStackTrace()
+    p.peers[peer.id] = nil
     p.peers.del(peer.id)
 
   # metrics
   libp2p_pubsub_peers.set(p.peers.len.int64)
+  trace "peer disconnected", peer = peer.id
 
 proc cleanUpHelper(p: PubSub, peer: PubSubPeer) {.async.} =
   try:
     await p.cleanupLock.acquire()
     peer.refs.dec() # decrement refcount
     if peer.refs <= 0:
-      await p.handleDisconnect(peer)
+      p.handleDisconnect(peer)
   finally:
     p.cleanupLock.release()
 
@@ -157,30 +161,30 @@ method handleConn*(p: PubSub,
   ##    that we're interested in
   ##
 
+  if isNil(conn.peerInfo):
+    trace "no valid PeerId for peer"
+    await conn.close()
+    return
+
+  proc handler(peer: PubSubPeer, msgs: seq[RPCMsg]) {.async.} =
+    # call pubsub rpc handler
+    await p.rpcHandler(peer, msgs)
+
+  let peer = p.getPeer(conn.peerInfo, proto)
+  let topics = toSeq(p.topics.keys)
+  if topics.len > 0:
+    await p.sendSubs(peer, topics, true)
+
   try:
-    if isNil(conn.peerInfo):
-      trace "no valid PeerId for peer"
-      await conn.close()
-      return
-
-    proc handler(peer: PubSubPeer, msgs: seq[RPCMsg]) {.async.} =
-      # call pubsub rpc handler
-      await p.rpcHandler(peer, msgs)
-
-    asyncCheck p.internalCleanup(conn)
-    let peer = p.getPeer(conn.peerInfo, proto)
-    let topics = toSeq(p.topics.keys)
-    if topics.len > 0:
-      await p.sendSubs(peer, topics, true)
-
     peer.handler = handler
     await peer.handle(conn) # spawn peer read loop
-    trace "pubsub peer handler ended, cleaning up"
+    trace "pubsub peer handler ended", peer = peer.id
   except CancelledError as exc:
-    await conn.close()
     raise exc
   except CatchableError as exc:
     trace "exception ocurred in pubsub handle", exc = exc.msg
+  finally:
+    p.handleDisconnect(peer)
     await conn.close()
 
 method subscribeToPeer*(p: PubSub,
