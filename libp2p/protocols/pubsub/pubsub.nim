@@ -28,7 +28,6 @@ declareGauge(libp2p_pubsub_topics, "pubsub subscribed topics")
 declareCounter(libp2p_pubsub_validation_success, "pubsub successfully validated messages")
 declareCounter(libp2p_pubsub_validation_failure, "pubsub failed validated messages")
 declarePublicCounter(libp2p_pubsub_messages_published, "published messages", labels = ["topic"])
-declareGauge(libp2p_pubsub_peers_per_topic, "pubsub peers per topic", labels = ["topic"])
 
 type
   TopicHandler* = proc(topic: string,
@@ -58,6 +57,18 @@ type
     observers: ref seq[PubSubObserver] # ref as in smart_ptr
     msgIdProvider*: MsgIdProvider     # Turn message into message id (not nil)
 
+method handleDisconnect*(p: PubSub, peer: PubSubPeer) {.base.} =
+  ## handle peer disconnects
+  ##
+  if peer.id in p.peers:
+    trace "deleting peer", peer = peer.id, stack = getStackTrace()
+    p.peers[peer.id] = nil
+    p.peers.del(peer.id)
+
+  # metrics
+  libp2p_pubsub_peers.set(p.peers.len.int64)
+  trace "peer disconnected", peer = peer.id
+
 proc sendSubs*(p: PubSub,
                peer: PubSubPeer,
                topics: seq[string],
@@ -80,10 +91,7 @@ method subscribeTopic*(p: PubSub,
                        topic: string,
                        subscribe: bool,
                        peerId: string) {.base, async.} =
-  if subscribe:
-    libp2p_pubsub_peers_per_topic.inc(labelValues = [topic])
-  else:
-    libp2p_pubsub_peers_per_topic.dec(labelValues = [topic])
+  discard
 
 method rpcHandler*(p: PubSub,
                    peer: PubSubPeer,
@@ -98,27 +106,6 @@ method rpcHandler*(p: PubSub,
         trace "about to subscribe to topic", topicId = s.topic
         await p.subscribeTopic(s.topic, s.subscribe, peer.id)
 
-method handleDisconnect*(p: PubSub, peer: PubSubPeer) =
-  ## handle peer disconnects
-  ##
-  if peer.id in p.peers:
-    trace "deleting peer", peer = peer.id, stack = getStackTrace()
-    p.peers[peer.id] = nil
-    p.peers.del(peer.id)
-
-  # metrics
-  libp2p_pubsub_peers.set(p.peers.len.int64)
-  trace "peer disconnected", peer = peer.id
-
-proc cleanUpHelper(p: PubSub, peer: PubSubPeer) {.async.} =
-  try:
-    await p.cleanupLock.acquire()
-    peer.refs.dec() # decrement refcount
-    if peer.refs <= 0:
-      p.handleDisconnect(peer)
-  finally:
-    p.cleanupLock.release()
-
 proc getPeer(p: PubSub,
              peerInfo: PeerInfo,
              proto: string): PubSubPeer =
@@ -127,25 +114,12 @@ proc getPeer(p: PubSub,
 
   # create new pubsub peer
   let peer = newPubSubPeer(peerInfo, proto)
-  trace "created new pubsub peer", peerId = peer.id
-
-  # metrics
+  trace "created new pubsub peer", peerId = peer.id, stack = getStackTrace()
 
   p.peers[peer.id] = peer
-  peer.refs.inc # increment reference count
   peer.observers = p.observers
   libp2p_pubsub_peers.set(p.peers.len.int64)
   return peer
-
-proc internalCleanup(p: PubSub, conn: Connection) {.async.} =
-  # handle connection close
-  if isNil(conn):
-    return
-
-  var peer = p.getPeer(conn.peerInfo, p.codec)
-  await conn.closeEvent.wait()
-  trace "pubsub conn closed, cleaning up peer", peer = conn.peerInfo.id
-  await p.cleanUpHelper(peer)
 
 method handleConn*(p: PubSub,
                    conn: Connection,
@@ -187,15 +161,20 @@ method handleConn*(p: PubSub,
     p.handleDisconnect(peer)
     await conn.close()
 
-method subscribeToPeer*(p: PubSub,
-                        conn: Connection) {.base, async.} =
+method subscribePeer*(p: PubSub, conn: Connection) =
   if not(isNil(conn)):
     let peer = p.getPeer(conn.peerInfo, p.codec)
-    trace "setting connection for peer", peerId = conn.peerInfo.id
+    trace "subscribing to peer", peerId = conn.peerInfo.id
     if not peer.connected:
       peer.conn = conn
 
-    asyncCheck p.internalCleanup(conn)
+method unsubscribePeer*(p: PubSub, peerInfo: PeerInfo) {.base, async.} =
+  let peer = p.getPeer(peerInfo, p.codec)
+  trace "unsubscribing from peer", peerId = $peerInfo
+  if not(isNil(peer.conn)):
+    await peer.conn.close()
+
+  p.handleDisconnect(peer)
 
 proc connected*(p: PubSub, peer: PeerInfo): bool =
   let peer = p.getPeer(peer, p.codec)
@@ -235,7 +214,7 @@ method subscribe*(p: PubSub,
 
   p.topics[topic].handler.add(handler)
 
-  for peer in p.peers.values:
+  for peer in toSeq(p.peers.values):
     await p.sendSubs(peer, @[topic], true)
 
   # metrics

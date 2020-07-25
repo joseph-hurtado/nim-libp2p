@@ -32,15 +32,14 @@ type
     onSend*: proc(peer: PubSubPeer; msgs: var RPCMsg) {.gcsafe, raises: [Defect].}
 
   PubSubPeer* = ref object of RootObj
-    proto: string # the protocol that this peer joined from
+    proto*: string # the protocol that this peer joined from
     sendConn: Connection
     peerInfo*: PeerInfo
     handler*: RPCHandler
     topics*: seq[string]
     sentRpcCache: TimedCache[string] # cache for already sent messages
     recvdRpcCache: TimedCache[string] # cache for already received messages
-    refs*: int # refcount of the connections this peer is handling
-    onConnect: AsyncEvent
+    onConnect*: AsyncEvent
     observers*: ref seq[PubSubObserver] # ref as in smart_ptr
 
   RPCHandler* = proc(peer: PubSubPeer, msg: seq[RPCMsg]): Future[void] {.gcsafe.}
@@ -55,6 +54,9 @@ proc `conn=`*(p: PubSubPeer, conn: Connection) =
     trace "attaching send connection for peer", peer = p.id
     p.sendConn = conn
     p.onConnect.fire()
+
+proc conn*(p: PubSubPeer): Connection =
+  p.sendConn
 
 proc recvObservers(p: PubSubPeer, msg: var RPCMsg) =
   # trigger hooks
@@ -100,10 +102,17 @@ proc handle*(p: PubSubPeer, conn: Connection) {.async.} =
       trace "exiting pubsub peer read loop", peer = p.id
       await conn.close()
 
+  except CancelledError as exc:
+    raise exc
   except CatchableError as exc:
     trace "Exception occurred in PubSubPeer.handle", exc = exc.msg
+    raise exc
 
 proc send*(p: PubSubPeer, msgs: seq[RPCMsg]) {.async.} =
+  logScope:
+    peer = p.id
+    msgs = $msgs
+
   for m in msgs.items:
     trace "sending msgs to peer", toPeer = p.id, msgs = $msgs
 
@@ -171,6 +180,9 @@ proc sendPrune*(p: PubSubPeer, topics: seq[string]) {.async.} =
   for topic in topics:
     trace "sending prune msg to peer", peer = p.id, topicID = topic
     await p.send(@[RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)])))])
+
+proc `$`*(p: PubSubPeer): string =
+  p.id
 
 proc newPubSubPeer*(peerInfo: PeerInfo,
                     proto: string): PubSubPeer =

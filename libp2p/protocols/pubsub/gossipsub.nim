@@ -263,9 +263,9 @@ method handleDisconnect*(g: GossipSub, peer: PubSubPeer) =
     libp2p_gossipsub_peers_per_topic_fanout
       .set(g.fanout[t].len.int64, labelValues = [t])
 
-method subscribeToPeer*(p: GossipSub,
-                        conn: Connection) {.async.} =
-  await procCall PubSub(p).subscribeToPeer(conn)
+method subscribePeer*(p: GossipSub,
+                        conn: Connection) =
+  procCall PubSub(p).subscribePeer(conn)
   asyncCheck p.handleConn(conn, GossipSubCodec)
 
 method subscribeTopic*(g: GossipSub,

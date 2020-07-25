@@ -281,6 +281,10 @@ proc cleanupConn(s: Switch, conn: Connection) {.async, gcsafe.} =
           if s.muxed[id].len == 0:
             s.muxed.del(id)
 
+      if s.pubSub.isSome:
+        await s.pubSub.get()
+          .unsubscribePeer(conn.peerInfo)
+
       if id in s.connections:
         s.connections[id].keepItIf(
           it.conn != conn
@@ -562,7 +566,7 @@ proc subscribeToPeer*(s: Switch, peerInfo: PeerInfo) {.async, gcsafe.} =
         await stream.close()
       return
 
-    await s.pubSub.get().subscribeToPeer(stream)
+    s.pubSub.get().subscribePeer(stream)
 
 proc subscribe*(s: Switch, topic: string,
                 handler: TopicHandler): Future[void] =

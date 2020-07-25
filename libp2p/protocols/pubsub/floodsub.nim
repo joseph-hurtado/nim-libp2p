@@ -111,9 +111,9 @@ method init*(f: FloodSub) =
   f.handler = handler
   f.codec = FloodSubCodec
 
-method subscribeToPeer*(p: FloodSub,
-                        conn: Connection) {.async.} =
-  await procCall PubSub(p).subscribeToPeer(conn)
+method subscribePeer*(p: FloodSub,
+                        conn: Connection) =
+  procCall PubSub(p).subscribePeer(conn)
   asyncCheck p.handleConn(conn, FloodSubCodec)
 
 method publish*(f: FloodSub,
