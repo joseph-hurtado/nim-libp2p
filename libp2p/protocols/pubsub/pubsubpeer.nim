@@ -131,7 +131,7 @@ proc send*(p: PubSubPeer, msgs: seq[RPCMsg]) {.async.} =
       libp2p_pubsub_skipped_sent_messages.inc(labelValues = [p.id])
       continue
 
-    try:
+    proc sendToRemote() {.async.} =
       trace "about to send message", peer = p.id,
                                      encoded = digest
       if p.connected: # this can happen if the remote disconnected
@@ -146,8 +146,13 @@ proc send*(p: PubSubPeer, msgs: seq[RPCMsg]) {.async.} =
               # metrics
               libp2p_pubsub_sent_messages.inc(labelValues = [p.id, t])
 
+    let sendFut = sendToRemote()
+    try:
+      await sendFut
     except CatchableError as exc:
       trace "unable to send to remote", exc = exc.msg
+      if not sendFut.finished:
+        await sendFut.cancelAndWait()
       if not(isNil(p.sendConn)):
         await p.sendConn.close()
         p.sendConn = nil
