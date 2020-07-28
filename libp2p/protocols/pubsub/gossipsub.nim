@@ -136,7 +136,7 @@ proc rebalanceMesh(g: GossipSub, topic: string) {.async.} =
 
     shuffle(newPeers)
 
-    trace "getting peers", topic, peers = peerIds.len
+    trace "getting peers", topic, peers = newPeers
 
     for id in newPeers:
       if g.mesh.peers(topic) >= GossipSubD:
