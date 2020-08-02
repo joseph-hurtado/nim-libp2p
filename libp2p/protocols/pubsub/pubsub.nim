@@ -30,8 +30,6 @@ declareCounter(libp2p_pubsub_validation_failure, "pubsub failed validated messag
 declarePublicCounter(libp2p_pubsub_messages_published, "published messages", labels = ["topic"])
 
 type
-  SendRes = tuple[published: seq[string], failed: seq[string]] # keep private
-
   TopicHandler* = proc(topic: string,
                        data: seq[byte]): Future[void] {.gcsafe.}
 
@@ -256,9 +254,10 @@ method subscribe*(p: PubSub,
   # metrics
   libp2p_pubsub_topics.set(p.topics.len.int64)
 
-proc sendHelper*(p: PubSub,
+proc publishHelper*(p: PubSub,
                  sendPeers: HashSet[PubSubPeer],
-                 msgs: seq[Message]): Future[SendRes] {.async.} =
+                 msgs: seq[Message]): Future[int] {.async.} =
+  # send messages and cleanup failed peers
   var sent: seq[tuple[id: string, fut: Future[void]]]
   for sendPeer in sendPeers:
     # avoid sending to self
@@ -281,13 +280,6 @@ proc sendHelper*(p: PubSub,
         trace "sending messages to peer succeeded", peer = f[0].id
         published.add(f[0].id)
 
-  return (published, failed)
-
-proc publishHelper*(p: PubSub,
-                     sendPeers: HashSet[PubSubPeer],
-                     msgs: seq[Message]): Future[int] {.async.} =
-  # send messages and cleanup failed peers
-  let (published, failed) = await p.sendHelper(sendPeers, msgs)
   for f in failed:
     let peer = p.peers.getOrDefault(f)
     if not(isNil(peer)) and not(isNil(peer.conn)):

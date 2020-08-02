@@ -81,7 +81,7 @@ proc handle*(p: PubSubPeer, conn: Connection) {.async.} =
   debug "starting pubsub read loop for peer", closed = conn.closed
   try:
     try:
-      while not conn.closed:
+      while not conn.atEof:
         trace "waiting for data", closed = conn.closed
         let data = await conn.readLp(64 * 1024)
         let digest = $(sha256.digest(data))
