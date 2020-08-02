@@ -175,7 +175,7 @@ proc send*(
 
   let sendFut = sendToRemote()
   try:
-    await sendFut.wait(timeout)
+    asyncCheck sendFut.wait(timeout) # TODO check these errors!
   except CatchableError as exc:
     trace "unable to send to remote", exc = exc.msg
     if not sendFut.finished:
