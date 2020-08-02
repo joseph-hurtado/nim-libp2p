@@ -51,7 +51,7 @@ type
     peerInfo*: PeerInfo                             # this peer's info
     topics*: Table[string, Topic]                   # local topics
     peers*: Table[string, PubSubPeer]               # peerid to peer map
-    conns*: Table[PeerInfo, HashSet[Connection]]  # peers connections
+    conns*: Table[PeerInfo, HashSet[Connection]]    # peers connections
     triggerSelf*: bool                              # trigger own local handler on publish
     verifySignature*: bool                          # enable signature verification
     sign*: bool                                     # enable message signing
@@ -66,6 +66,7 @@ method handleDisconnect*(p: PubSub, peer: PubSubPeer) {.base.} =
   ##
   if not(isNil(peer)) and peer.peerInfo notin p.conns:
     trace "deleting peer", peer = peer.id
+    peer.onConnect.fire() # Make sure all pending sends are unblocked
     p.peers.del(peer.id)
     trace "peer disconnected", peer = peer.id
 
@@ -89,30 +90,6 @@ proc onConnClose(p: PubSub, conn: Connection) {.async.} =
     raise exc
   except CatchableError as exc:
     trace "exception in onConnClose handler", exc = exc.msg
-
-proc sendSubs*(p: PubSub,
-               peer: PubSubPeer,
-               topics: seq[string],
-               subscribe: bool) {.async.} =
-  ## send subscriptions to remote peer
-
-  try:
-    # wait for a connection before publishing
-    # this happens when
-    if not peer.onConnect.isSet:
-      trace "awaiting send connection"
-      await peer.onConnect.wait()
-
-    await peer.sendSubOpts(topics, subscribe)
-  except CancelledError as exc:
-    if not(isNil(peer)) and not(isNil(peer.conn)):
-      await peer.conn.close()
-
-    raise exc
-  except CatchableError as exc:
-    trace "unable to send subscriptions", exc = exc.msg
-    if not(isNil(peer)) and not(isNil(peer.conn)):
-      await peer.conn.close()
 
 method subscribeTopic*(p: PubSub,
                        topic: string,
@@ -185,7 +162,7 @@ method handleConn*(p: PubSub,
   let peer = p.getOrCreatePeer(conn.peerInfo, proto)
 
   if p.topics.len > 0:
-    await p.sendSubs(peer, toSeq(p.topics.keys), true)
+    await peer.sendSubOpts(toSeq(p.topics.keys), true)
 
   try:
     peer.handler = handler
@@ -274,9 +251,7 @@ method subscribe*(p: PubSub,
 
   var sent: seq[Future[void]]
   for peer in toSeq(p.peers.values):
-    sent.add(p.sendSubs(peer, @[topic], true))
-
-  checkFutures(await allFinished(sent))
+    asyncCheck peer.sendSubOpts(@[topic], true)
 
   # metrics
   libp2p_pubsub_topics.set(p.topics.len.int64)

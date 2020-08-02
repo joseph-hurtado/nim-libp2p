@@ -144,25 +144,31 @@ proc send*(p: PubSubPeer, msg: RPCMsg) {.async.} =
     libp2p_pubsub_skipped_sent_messages.inc(labelValues = [p.id])
     return
 
+  if p.sendConn.isNil():
+    await p.onConnect.wait()
+    if p.sendConn.isNil():
+      warn "Not sending message"
+      return
+
   try:
     trace "about to send message"
-    if p.connected: # this can happen if the remote disconnected
-      trace "sending encoded msgs to peer"
 
-      await p.sendConn.writeLp(encoded)
-      p.sentRpcCache.put(digest)
+    await p.sendConn.writeLp(encoded)
+    p.sentRpcCache.put(digest)
 
-      for x in mm.messages:
-        for t in x.topicIDs:
-          # metrics
-          libp2p_pubsub_sent_messages.inc(labelValues = [p.id, t])
+    for x in mm.messages:
+      for t in x.topicIDs:
+        # metrics
+        libp2p_pubsub_sent_messages.inc(labelValues = [p.id, t])
 
   except CatchableError as exc:
-    trace "unable to send to remote", exc = exc.msg
+    debug "unable to send to remote", exc = exc.msg
     if not(isNil(p.sendConn)):
-      await p.sendConn.close()
+      let conn = p.sendConn
       p.sendConn = nil
       p.onConnect.clear()
+
+      asyncCheck conn.close()
 
     raise exc
 

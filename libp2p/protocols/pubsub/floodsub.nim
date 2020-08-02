@@ -150,13 +150,13 @@ method unsubscribe*(f: FloodSub,
   await procCall PubSub(f).unsubscribe(topics)
 
   for p in f.peers.values:
-    await f.sendSubs(p, topics.mapIt(it.topic).deduplicate(), false)
+    asyncCheck p.sendSubOpts(topics.mapIt(it.topic).deduplicate(), false)
 
 method unsubscribeAll*(f: FloodSub, topic: string) {.async.} =
   await procCall PubSub(f).unsubscribeAll(topic)
 
   for p in f.peers.values:
-    await f.sendSubs(p, @[topic], false)
+    asyncCheck p.sendSubOpts(@[topic], false)
 
 method initPubSub*(f: FloodSub) =
   procCall PubSub(f).initPubSub()
