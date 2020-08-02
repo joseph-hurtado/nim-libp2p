@@ -478,8 +478,11 @@ method handshake*(p: Noise, conn: Connection, initiator: bool): Future[SecureCon
         debug "Noise handshake, peer infos don't match!", initiator, dealt_peer = $conn.peerInfo.id, dealt_key = $failedKey, received_peer = $pid, received_key = $remotePubKey
         raise newException(NoiseHandshakeError, "Noise handshake, peer infos don't match! " & $pid & " != " & $conn.peerInfo.peerId)
 
-    var tmp = NoiseConnection.init(
-      conn, PeerInfo.init(remotePubKey), conn.observedAddr)
+    let peerInfo =
+      if conn.peerInfo != nil: conn.peerInfo
+      else: PeerInfo.init(remotePubKey) # TODO connmanager
+
+    var tmp = NoiseConnection.init(conn, peerInfo, conn.observedAddr)
 
     if initiator:
       tmp.readCs = handshakeRes.cs2

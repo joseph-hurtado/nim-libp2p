@@ -33,11 +33,11 @@ proc waitSub(sender, receiver: auto; key: string) {.async, gcsafe.} =
   var ceil = 15
   let fsub = GossipSub(sender.pubSub.get())
   while (not fsub.gossipsub.hasKey(key) or
-         not fsub.gossipsub.hasPeerID(key, receiver.peerInfo.id)) and
+         not fsub.gossipsub.hasPeerID(key, receiver.peerInfo.peerId)) and
         (not fsub.mesh.hasKey(key) or
-         not fsub.mesh.hasPeerID(key, receiver.peerInfo.id)) and
+         not fsub.mesh.hasPeerID(key, receiver.peerInfo.peerId)) and
         (not fsub.fanout.hasKey(key) or
-         not fsub.fanout.hasPeerID(key , receiver.peerInfo.id)):
+         not fsub.fanout.hasPeerID(key, receiver.peerInfo.peerId)):
     trace "waitSub sleeping..."
     await sleepAsync(1.seconds)
     dec ceil
@@ -72,7 +72,7 @@ suite "GossipSub":
       awaiters.add((await nodes[0].start()))
       awaiters.add((await nodes[1].start()))
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
 
       await nodes[0].subscribe("foobar", handler)
       await nodes[1].subscribe("foobar", handler)
@@ -100,7 +100,6 @@ suite "GossipSub":
         nodes[0].stop(),
         nodes[1].stop())
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaiters)
 
     check:
@@ -116,7 +115,7 @@ suite "GossipSub":
       awaiters.add((await nodes[0].start()))
       awaiters.add((await nodes[1].start()))
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
 
       await nodes[0].subscribe("foobar", handler)
       await nodes[1].subscribe("foobar", handler)
@@ -143,7 +142,6 @@ suite "GossipSub":
         nodes[0].stop(),
         nodes[1].stop())
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaiters)
 
     check:
@@ -161,7 +159,7 @@ suite "GossipSub":
       awaiters.add((await nodes[0].start()))
       awaiters.add((await nodes[1].start()))
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
       await nodes[1].subscribe("foo", handler)
       await nodes[1].subscribe("bar", handler)
 
@@ -194,7 +192,6 @@ suite "GossipSub":
         nodes[0].stop(),
         nodes[1].stop())
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaiters)
       result = true
     check:
@@ -214,7 +211,7 @@ suite "GossipSub":
       for node in nodes:
         awaitters.add(await node.start())
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
       await nodes[1].subscribe("foobar", handler)
       await sleepAsync(10.seconds)
 
@@ -224,11 +221,10 @@ suite "GossipSub":
       check:
         "foobar" in gossip2.topics
         "foobar" in gossip1.gossipsub
-        gossip1.gossipsub.hasPeerID("foobar", gossip2.peerInfo.id)
+        gossip1.gossipsub.hasPeerID("foobar", gossip2.peerInfo.peerId)
 
       await allFuturesThrowing(nodes.mapIt(it.stop()))
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaitters)
 
       result = true
@@ -249,7 +245,7 @@ suite "GossipSub":
       for node in nodes:
         awaitters.add(await node.start())
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
 
       await nodes[0].subscribe("foobar", handler)
       await nodes[1].subscribe("foobar", handler)
@@ -271,15 +267,14 @@ suite "GossipSub":
         "foobar" in gossip1.gossipsub
         "foobar" in gossip2.gossipsub
 
-        gossip1.gossipsub.hasPeerID("foobar", gossip2.peerInfo.id) or
-        gossip1.mesh.hasPeerID("foobar", gossip2.peerInfo.id)
+        gossip1.gossipsub.hasPeerID("foobar", gossip2.peerInfo.peerId) or
+        gossip1.mesh.hasPeerID("foobar", gossip2.peerInfo.peerId)
 
-        gossip2.gossipsub.hasPeerID("foobar", gossip1.peerInfo.id) or
-        gossip2.mesh.hasPeerID("foobar", gossip1.peerInfo.id)
+        gossip2.gossipsub.hasPeerID("foobar", gossip1.peerInfo.peerId) or
+        gossip2.mesh.hasPeerID("foobar", gossip1.peerInfo.peerId)
 
       await allFuturesThrowing(nodes.mapIt(it.stop()))
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaitters)
 
       result = true
@@ -299,7 +294,7 @@ suite "GossipSub":
       wait.add(await nodes[0].start())
       wait.add(await nodes[1].start())
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
 
       await nodes[1].subscribe("foobar", handler)
       await waitSub(nodes[0], nodes[1], "foobar")
@@ -322,8 +317,8 @@ suite "GossipSub":
 
       check:
         "foobar" in gossip1.gossipsub
-        gossip1.fanout.hasPeerID("foobar", gossip2.peerInfo.id)
-        not gossip1.mesh.hasPeerID("foobar", gossip2.peerInfo.id)
+        gossip1.fanout.hasPeerID("foobar", gossip2.peerInfo.peerId)
+        not gossip1.mesh.hasPeerID("foobar", gossip2.peerInfo.peerId)
 
       await passed.wait(2.seconds)
 
@@ -332,7 +327,6 @@ suite "GossipSub":
       await nodes[0].stop()
       await nodes[1].stop()
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(wait)
 
       check observed == 2
@@ -353,7 +347,7 @@ suite "GossipSub":
       wait.add(await nodes[0].start())
       wait.add(await nodes[1].start())
 
-      let subscribes = await subscribeNodes(nodes)
+      await subscribeNodes(nodes)
 
       await nodes[0].subscribe("foobar", handler)
       await nodes[1].subscribe("foobar", handler)
@@ -369,15 +363,14 @@ suite "GossipSub":
       check:
         "foobar" in gossip1.gossipsub
         "foobar" in gossip2.gossipsub
-        gossip1.mesh.hasPeerID("foobar", gossip2.peerInfo.id)
-        not gossip1.fanout.hasPeerID("foobar", gossip2.peerInfo.id)
-        gossip2.mesh.hasPeerID("foobar", gossip1.peerInfo.id)
-        not gossip2.fanout.hasPeerID("foobar", gossip1.peerInfo.id)
+        gossip1.mesh.hasPeerID("foobar", gossip2.peerInfo.peerId)
+        not gossip1.fanout.hasPeerID("foobar", gossip2.peerInfo.peerId)
+        gossip2.mesh.hasPeerID("foobar", gossip1.peerInfo.peerId)
+        not gossip2.fanout.hasPeerID("foobar", gossip1.peerInfo.peerId)
 
       await nodes[0].stop()
       await nodes[1].stop()
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(wait)
 
     check:
@@ -395,9 +388,9 @@ suite "GossipSub":
                                     secureManagers = [SecureProtocol.Noise])
         awaitters.add((await nodes[i].start()))
 
-      let subscribes = await subscribeRandom(nodes)
+      await subscribeRandom(nodes)
 
-      var seen: Table[string, int]
+      var seen: Table[PeerID, int]
       var subs: seq[Future[void]]
       var seenFut = newFuture[void]()
       for dialer in nodes:
@@ -405,9 +398,9 @@ suite "GossipSub":
         closureScope:
           var dialerNode = dialer
           handler = proc(topic: string, data: seq[byte]) {.async, gcsafe, closure.} =
-            if dialerNode.peerInfo.id notin seen:
-              seen[dialerNode.peerInfo.id] = 0
-            seen[dialerNode.peerInfo.id].inc
+            if dialerNode.peerInfo.peerId notin seen:
+              seen[dialerNode.peerInfo.peerId] = 0
+            seen[dialerNode.peerInfo.peerId].inc
             check topic == "foobar"
             if not seenFut.finished() and seen.len >= runs:
               seenFut.complete()
@@ -417,7 +410,7 @@ suite "GossipSub":
       await allFuturesThrowing(subs)
 
       tryPublish await wait(nodes[0].publish("foobar",
-                                    cast[seq[byte]]("from node " &
+                                    toBytes("from node " &
                                     nodes[1].peerInfo.id)),
                                     1.minutes), runs, 5.seconds
 
@@ -435,7 +428,6 @@ suite "GossipSub":
 
       await allFuturesThrowing(nodes.mapIt(it.stop()))
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaitters)
       result = true
 
@@ -454,9 +446,9 @@ suite "GossipSub":
                                     secureManagers = [SecureProtocol.Secio])
         awaitters.add((await nodes[i].start()))
 
-      let subscribes = await subscribeSparseNodes(nodes, 1)
+      await subscribeSparseNodes(nodes, 1)
 
-      var seen: Table[string, int]
+      var seen: Table[PeerID, int]
       var subs: seq[Future[void]]
       var seenFut = newFuture[void]()
       for dialer in nodes:
@@ -465,9 +457,9 @@ suite "GossipSub":
           var dialerNode = dialer
           handler = proc(topic: string, data: seq[byte])
             {.async, gcsafe, closure.} =
-            if dialerNode.peerInfo.id notin seen:
-              seen[dialerNode.peerInfo.id] = 0
-            seen[dialerNode.peerInfo.id].inc
+            if dialerNode.peerInfo.peerId notin seen:
+              seen[dialerNode.peerInfo.peerId] = 0
+            seen[dialerNode.peerInfo.peerId].inc
             check topic == "foobar"
             if not seenFut.finished() and seen.len >= runs:
               seenFut.complete()
@@ -477,8 +469,8 @@ suite "GossipSub":
       await allFuturesThrowing(subs)
 
       tryPublish await wait(nodes[0].publish("foobar",
-                                    cast[seq[byte]]("from node " &
-                                    nodes[1].peerInfo.id)),
+                                    toBytes("from node " &
+                                      nodes[1].peerInfo.id)),
                                     1.minutes), 2, 5.seconds
 
       await wait(seenFut, 5.minutes)
@@ -495,7 +487,6 @@ suite "GossipSub":
 
       await allFuturesThrowing(nodes.mapIt(it.stop()))
 
-      await allFuturesThrowing(subscribes)
       await allFuturesThrowing(awaitters)
       result = true
 

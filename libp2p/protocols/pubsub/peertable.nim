@@ -13,10 +13,10 @@ import pubsubpeer, ../../peerid
 type
   PeerTable* = Table[string, HashSet[PubSubPeer]] # topic string to peer map
 
-proc hasPeerID*(t: PeerTable, topic, peerId: string): bool =
+proc hasPeerID*(t: PeerTable, topic: string, peerId: PeerID): bool =
   let peers = toSeq(t.getOrDefault(topic))
   peers.any do (peer: PubSubPeer) -> bool:
-    peer.id == peerId
+    peer.peerId == peerId
 
 func addPeer*(table: var PeerTable, topic: string, peer: PubSubPeer): bool =
   # returns true if the peer was added,
@@ -40,5 +40,5 @@ func peers*(table: PeerTable, topic: string): int =
   else:
     0
 
-func getPeers*(table: Table[string, HashSet[string]], topic: string): HashSet[string] =
-  table.getOrDefault(topic, initHashSet[string]())
+func getPeers*(table: Table[string, HashSet[PeerID]], topic: string): HashSet[PeerID] =
+  table.getOrDefault(topic, initHashSet[PeerID]())

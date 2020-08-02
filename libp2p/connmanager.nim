@@ -29,6 +29,7 @@ type
     # the reference semantics on the PeerInfo
     # object itself make it succeptible to
     # copies and mangling by unrelated code.
+    peers: Table[PeerID, PeerInfo]
     conns: Table[PeerID, HashSet[Connection]]
     muxed: Table[Connection, MuxerHolder]
     maxConns: int
@@ -54,6 +55,14 @@ proc contains*(c: ConnManager, conn: Connection): bool =
     return
 
   return conn in c.conns[conn.peerInfo.peerId]
+
+proc getPeerInfo*(c: ConnManager, peerId: PeerId): PeerInfo =
+  c.peers.withValue(peerId, info) do:
+    return info[]
+  do:
+    let info = PeerInfo.init(peerId)
+    c.peers[peerId] = info
+    return info
 
 proc contains*(c: ConnManager, peerId: PeerID): bool =
   peerId in c.conns

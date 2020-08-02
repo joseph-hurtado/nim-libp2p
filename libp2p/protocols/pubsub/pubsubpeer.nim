@@ -47,7 +47,8 @@ func hash*(p: PubSubPeer): Hash =
   # int is either 32/64, so intptr basically, pubsubpeer is a ref
   cast[pointer](p).hash
 
-proc id*(p: PubSubPeer): string = p.peerInfo.id
+func id*(p: PubSubPeer): string = p.peerInfo.id
+func peerId*(p: PubSubPeer): PeerID = p.peerInfo.peerId
 
 proc connected*(p: PubSubPeer): bool =
   not(isNil(p.sendConn))

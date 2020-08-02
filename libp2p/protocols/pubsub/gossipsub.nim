@@ -173,7 +173,7 @@ proc dropFanoutPeers(g: GossipSub) =
     libp2p_gossipsub_peers_per_topic_fanout
       .set(g.fanout.peers(topic).int64, labelValues = [topic])
 
-proc getGossipPeers(g: GossipSub): Table[string, ControlMessage] {.gcsafe.} =
+proc getGossipPeers(g: GossipSub): Table[PeerID, ControlMessage] {.gcsafe.} =
   ## gossip iHave messages to peers
   ##
 
@@ -207,10 +207,10 @@ proc getGossipPeers(g: GossipSub): Table[string, ControlMessage] {.gcsafe.} =
       if peer in gossipPeers:
         continue
 
-      if peer.id notin result:
-        result[peer.id] = controlMsg
+      if peer.peerId notin result:
+        result[peer.peerId] = controlMsg
 
-      result[peer.id].ihave.add(ihave)
+      result[peer.peerId].ihave.add(ihave)
 
 proc heartbeat(g: GossipSub) {.async.} =
   while g.heartbeatRunning:
@@ -270,7 +270,7 @@ method subscribePeer*(p: GossipSub,
 method subscribeTopic*(g: GossipSub,
                        topic: string,
                        subscribe: bool,
-                       peerId: string) {.gcsafe, async.} =
+                       peerId: PeerID) {.gcsafe, async.} =
   await procCall FloodSub(g).subscribeTopic(topic, subscribe, peerId)
 
   logScope:

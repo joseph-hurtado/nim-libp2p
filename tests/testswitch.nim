@@ -55,10 +55,11 @@ suite "Switch":
       awaiters.add(await switch1.start())
       awaiters.add(await switch2.start())
 
-      let conn = await switch2.dial(switch1.peerInfo, TestCodec)
+      let conn = await switch2.dial(
+        switch1.peerInfo.peerId, switch1.peerInfo.addrs, TestCodec)
 
-      check switch1.isConnected(switch2.peerInfo)
-      check switch2.isConnected(switch1.peerInfo)
+      check switch1.isConnected(switch2.peerInfo.peerId)
+      check switch2.isConnected(switch1.peerInfo.peerId)
 
       await conn.writeLp("Hello!")
       let msg = string.fromBytes(await conn.readLp(1024))

@@ -48,8 +48,8 @@ type
   PubSub* = ref object of LPProtocol
     peerInfo*: PeerInfo                             # this peer's info
     topics*: Table[string, Topic]                   # local topics
-    peers*: Table[string, PubSubPeer]               # peerid to peer map
-    conns*: Table[PeerInfo, HashSet[Connection]]    # peers connections
+    peers*: Table[PeerID, PubSubPeer]               # peerid to peer map
+    conns*: Table[PeerID, HashSet[Connection]]      # peers connections
     triggerSelf*: bool                              # trigger own local handler on publish
     verifySignature*: bool                          # enable signature verification
     sign*: bool                                     # enable message signing
@@ -62,10 +62,10 @@ type
 method handleDisconnect*(p: PubSub, peer: PubSubPeer) {.base.} =
   ## handle peer disconnects
   ##
-  if not(isNil(peer)) and peer.peerInfo notin p.conns:
+  if not(isNil(peer)) and peer.peerInfo.peerId notin p.conns:
     trace "deleting peer", peer = peer.id
     peer.onConnect.fire() # Make sure all pending sends are unblocked
-    p.peers.del(peer.id)
+    p.peers.del(peer.peerInfo.peerId)
     trace "peer disconnected", peer = peer.id
 
     # metrics
@@ -73,16 +73,16 @@ method handleDisconnect*(p: PubSub, peer: PubSubPeer) {.base.} =
 
 proc onConnClose(p: PubSub, conn: Connection) {.async.} =
   try:
-    let peer = conn.peerInfo
+    let peerId = conn.peerInfo.peerId
     await conn.closeEvent.wait()
 
-    if peer in p.conns:
-      p.conns[peer].excl(conn)
-      if p.conns[peer].len <= 0:
-        p.conns.del(peer)
+    if peerId in p.conns:
+      p.conns[peerId].excl(conn)
+      if p.conns[peerId].len <= 0:
+        p.conns.del(peerId)
 
-    if peer.id in p.peers:
-      p.handleDisconnect(p.peers[peer.id])
+    if peerId in p.peers:
+      p.handleDisconnect(p.peers[peerId])
 
   except CancelledError as exc:
     raise exc
@@ -92,7 +92,7 @@ proc onConnClose(p: PubSub, conn: Connection) {.async.} =
 method subscribeTopic*(p: PubSub,
                        topic: string,
                        subscribe: bool,
-                       peerId: string) {.base, async.} =
+                       peerId: PeerID) {.base, async.} =
   # called when remote peer subscribes to a topic
   discard
 
@@ -107,19 +107,19 @@ method rpcHandler*(p: PubSub,
     if m.subscriptions.len > 0:                    # if there are any subscriptions
       for s in m.subscriptions:                    # subscribe/unsubscribe the peer for each topic
         trace "about to subscribe to topic", topicId = s.topic
-        await p.subscribeTopic(s.topic, s.subscribe, peer.id)
+        await p.subscribeTopic(s.topic, s.subscribe, peer.peerId)
 
 proc getOrCreatePeer(p: PubSub,
                      peerInfo: PeerInfo,
                      proto: string): PubSubPeer =
-  if peerInfo.id in p.peers:
-    return p.peers[peerInfo.id]
+  if peerInfo.peerId in p.peers:
+    return p.peers[peerInfo.peerId]
 
   # create new pubsub peer
   let peer = newPubSubPeer(peerInfo, proto)
   trace "created new pubsub peer", peerId = peer.id
 
-  p.peers[peer.id] = peer
+  p.peers[peer.peerInfo.peerId] = peer
   peer.observers = p.observers
 
     # metrics
@@ -147,7 +147,7 @@ method handleConn*(p: PubSub,
     return
 
   # track connection
-  p.conns.mgetOrPut(conn.peerInfo,
+  p.conns.mgetOrPut(conn.peerInfo.peerId,
     initHashSet[Connection]())
     .incl(conn)
 
@@ -178,7 +178,7 @@ method subscribePeer*(p: PubSub, conn: Connection) {.base.} =
     trace "subscribing to peer", peerId = conn.peerInfo.id
 
     # track connection
-    p.conns.mgetOrPut(conn.peerInfo,
+    p.conns.mgetOrPut(conn.peerInfo.peerId,
       initHashSet[Connection]())
       .incl(conn)
 
@@ -188,20 +188,26 @@ method subscribePeer*(p: PubSub, conn: Connection) {.base.} =
     if not peer.connected:
       peer.conn = conn
 
-method unsubscribePeer*(p: PubSub, peerInfo: PeerInfo) {.base, async.} =
-  if peerInfo.id in p.peers:
-    let peer = p.peers[peerInfo.id]
+method unsubscribePeer*(p: PubSub, peerId: PeerID) {.base, async.} =
+  if peerId in p.peers:
+    let peer = p.peers[peerId]
 
-    trace "unsubscribing from peer", peerId = $peerInfo
+    trace "unsubscribing from peer", peer = $peerId
     if not(isNil(peer)) and not(isNil(peer.conn)):
       await peer.conn.close()
 
-proc connected*(p: PubSub, peerInfo: PeerInfo): bool =
-  if peerInfo.id in p.peers:
-    let peer = p.peers[peerInfo.id]
+proc unsubscribePeer*(p: PubSub, peerInfo: PeerInfo): Future[void] {.deprecated: "peerid".} =
+  unsubscribePeer(p, peerInfo.peerId)
+
+proc connected*(p: PubSub, peerId: PeerID): bool =
+  if peerId in p.peers:
+    let peer = p.peers[peerId]
 
     if not(isNil(peer)):
       return peer.connected
+
+proc connected*(p: PubSub, peerInfo: PeerInfo): bool {.deprecated: "peerid".} =
+  not peerInfo.isNil and connected(p, peerInfo.peerId)
 
 method unsubscribe*(p: PubSub,
                     topics: seq[TopicPair]) {.base, async.} =
@@ -247,7 +253,6 @@ method subscribe*(p: PubSub,
 
   p.topics[topic].handler.add(handler)
 
-  var sent: seq[Future[void]]
   for peer in toSeq(p.peers.values):
     asyncCheck peer.sendSubOpts(@[topic], true)
 
@@ -280,10 +285,10 @@ proc publishHelper*(p: PubSub,
         trace "sending messages to peer succeeded", peer = f[0].id
         published.add(f[0].id)
 
-  for f in failed:
-    let peer = p.peers.getOrDefault(f)
-    if not(isNil(peer)) and not(isNil(peer.conn)):
-      await peer.conn.close()
+  # for f in failed:
+  #   let peer = p.peers.getOrDefault(f)
+  #   if not(isNil(peer)) and not(isNil(peer.conn)):
+  #     await peer.conn.close()
 
   return published.len
 

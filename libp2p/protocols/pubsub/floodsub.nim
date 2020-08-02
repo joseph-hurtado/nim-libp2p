@@ -31,7 +31,7 @@ type
 method subscribeTopic*(f: FloodSub,
                        topic: string,
                        subscribe: bool,
-                       peerId: string) {.gcsafe, async.} =
+                       peerId: PeerID) {.gcsafe, async.} =
   await procCall PubSub(f).subscribeTopic(topic, subscribe, peerId)
 
   let peer = f.peers.getOrDefault(peerId)
@@ -160,7 +160,7 @@ method unsubscribeAll*(f: FloodSub, topic: string) {.async.} =
 
 method initPubSub*(f: FloodSub) =
   procCall PubSub(f).initPubSub()
-  f.peers = initTable[string, PubSubPeer]()
+  f.peers = initTable[PeerID, PubSubPeer]()
   f.topics = initTable[string, Topic]()
   f.floodsub = initTable[string, HashSet[PubSubPeer]]()
   f.seen = newTimedCache[string](2.minutes)
