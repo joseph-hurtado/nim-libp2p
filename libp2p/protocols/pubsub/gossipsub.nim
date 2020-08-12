@@ -88,11 +88,10 @@ proc replenishFanout(g: GossipSub, topic: string) =
 
   if g.fanout.peers(topic) < GossipSubDLo:
     trace "replenishing fanout", peers = g.fanout.peers(topic)
-    if topic in g.gossipsub:
-      for peer in g.gossipsub[topic]:
-        if g.fanout.addPeer(topic, peer):
-          if g.fanout.peers(topic) == GossipSubD:
-            break
+    for peer in g.gossipsub.getOrDefault(topic):
+      if g.fanout.addPeer(topic, peer):
+        if g.fanout.peers(topic) == GossipSubD:
+          break
 
   when defined(libp2p_expensive_metrics):
     libp2p_gossipsub_peers_per_topic_fanout
@@ -136,7 +135,7 @@ proc rebalanceMesh(g: GossipSub, topic: string) {.async.} =
 
   if g.mesh.peers(topic) > GossipSubDhi:
     # prune peers if we've gone over Dhi
-    prunes = toSeq(g.mesh[topic])
+    prunes = toSeq(g.mesh.getOrDefault(topic))
     shuffle(prunes)
     prunes.setLen(prunes.len - GossipSubD) # .. down to D peers
 
@@ -155,10 +154,15 @@ proc rebalanceMesh(g: GossipSub, topic: string) {.async.} =
       .set(g.mesh.peers(topic).int64, labelValues = [topic])
 
   # Send changes to peers after table updates to avoid stale state
-  let graft = RPCMsg(control: some(ControlMessage(graft: @[ControlGraft(topicID: topic)])))
-  let prune = RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)])))
-  discard await g.broadcast(grafts, graft, DefaultSendTimeout)
-  discard await g.broadcast(prunes, prune, DefaultSendTimeout)
+  discard await g.broadcast(
+    grafts,
+    RPCMsg(control: some(ControlMessage(graft: @[ControlGraft(topicID: topic)]))),
+    DefaultSendTimeout)
+
+  discard await g.broadcast(
+    prunes,
+    RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)]))),
+    DefaultSendTimeout)
 
   trace "mesh balanced, got peers", peers = g.mesh.peers(topic)
 
@@ -265,12 +269,20 @@ method unsubscribePeer*(g: GossipSub, peer: PeerID) =
   for t in toSeq(g.mesh.keys):
     g.mesh.removePeer(t, pubSubPeer)
 
+    echo "MESH ", g.mesh.getOrDefault(t)
+    echo "GOSSIPSUB ", g.gossipsub.getOrDefault(t)
+    doAssert(g.gossipsub.peers(t) >= g.mesh.peers(t),
+      "mesh peers can't exceed gossipsub")
+
     when defined(libp2p_expensive_metrics):
       libp2p_gossipsub_peers_per_topic_mesh
         .set(g.mesh.peers(t).int64, labelValues = [t])
 
   for t in toSeq(g.fanout.keys):
     g.fanout.removePeer(t, pubSubPeer)
+
+    doAssert(g.gossipsub.peers(t) >= g.fanout.peers(t),
+      "fanout peers can't exceed gossipsub")
 
     when defined(libp2p_expensive_metrics):
       libp2p_gossipsub_peers_per_topic_fanout
@@ -424,7 +436,7 @@ method rpcHandler*(g: GossipSub,
             toSendPeers.incl(g.floodsub[t])        # get all floodsub peers for topic
 
           if t in g.mesh:
-            toSendPeers.incl(g.mesh[t])            # get all mesh peers for topic
+            toSendPeers.incl(g.mesh.getOrDefault(t))            # get all mesh peers for topic
 
           if t in g.topics:                        # if we're subscribed to the topic
             for h in g.topics[t].handler:
@@ -495,8 +507,10 @@ method unsubscribeAll*(g: GossipSub, topic: string) {.async.} =
     let peers = g.mesh.getOrDefault(topic)
     g.mesh.del(topic)
 
-    let prune = RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)])))
-    discard await g.broadcast(toSeq(peers), prune, DefaultSendTimeout)
+    discard await g.broadcast(
+      toSeq(peers),
+      RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)]))),
+      DefaultSendTimeout)
 
 method publish*(g: GossipSub,
                 topic: string,

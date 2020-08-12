@@ -203,24 +203,19 @@ method close*(s: LPChannel) {.async, gcsafe.} =
     trace "channel already closed"
     return
 
-  trace "closing local lpchannel"
-
-  proc closeInternal() {.async.} =
-    try:
-      await s.closeMessage().wait(2.minutes)
-      if s.atEof: # already closed by remote close parent buffer immediately
-        await procCall BufferStream(s).close()
-    except CancelledError as exc:
-      await s.reset()
-      raise exc
-    except CatchableError as exc:
-      trace "exception closing channel", exc = exc.msg
-      await s.reset()
-
+  try:
+    trace "closing local lpchannel"
+    s.closedLocal = true
+    await s.closeMessage().wait(2.minutes)
+    if s.atEof: # already closed by remote close parent buffer immediately
+      await procCall BufferStream(s).close()
     trace "lpchannel closed local"
-
-  s.closedLocal = true
-  asyncCheck closeInternal()
+  except CancelledError as exc:
+    await s.reset()
+    raise exc
+  except CatchableError as exc:
+    trace "exception closing channel", exc = exc.msg
+    await s.reset()
 
 method initStream*(s: LPChannel) =
   if s.objName.len == 0:

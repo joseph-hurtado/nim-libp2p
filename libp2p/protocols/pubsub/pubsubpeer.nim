@@ -174,7 +174,8 @@ proc send*(
           p.sendLock.release()
 
     trace "sending encoded msgs to peer"
-    await p.sendConn.writeLp(encoded).wait(timeout)
+    # await p.sendConn.writeLp(encoded).wait(timeout)
+    await p.sendConn.writeLp(encoded)
     p.sentRpcCache.put(digest)
     trace "sent pubsub message to remote"
 
