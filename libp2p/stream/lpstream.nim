@@ -98,6 +98,14 @@ method readOnce*(s: LPStream,
   {.base, async.} =
   doAssert(false, "not implemented!")
 
+proc readOnce*(s: LPStream, output: var openArray[byte]): Future[int] =
+  if output.len == 0: # async transformation doesn't support openArray!
+    let res = newFuture[int]("LPStream.readOnce.0")
+    res.complete(0)
+    return res
+
+  readOnce(s, addr output[0], output.len)
+
 proc readExactly*(s: LPStream,
                   pbytes: pointer,
                   nbytes: int):
@@ -124,6 +132,14 @@ proc readExactly*(s: LPStream,
     else:
       trace "couldn't read all bytes, incomplete data", expected = nbytes, read
       raise newLPStreamIncompleteError()
+
+proc readExactly*(s: LPStream, output: var openArray[byte]): Future[void] =
+  if output.len == 0: # async transformation doesn't support openArray!
+    let res = newFuture[void]("LPStream.readExactly.0")
+    res.complete()
+    return res
+
+  readExactly(s, addr output[0], output.len)
 
 proc readLine*(s: LPStream,
                limit = 0,

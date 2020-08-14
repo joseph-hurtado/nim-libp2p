@@ -102,6 +102,7 @@ proc broadcast*(
     peers = sendPeers.len, message = shortLog(msg)
   let sent = await allFinished(
     sendPeers.mapIt( p.send(it, msg, timeout) ))
+
   return sent.filterIt( it.finished and it.error.isNil ).len
 
 proc sendSubs*(p: PubSub,
