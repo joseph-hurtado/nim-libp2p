@@ -7,7 +7,7 @@
 ## This file may not be copied, modified, or distributed except according to
 ## those terms.
 
-import strutils
+import strutils, oids
 import chronos, chronicles, stew/byteutils
 import stream/connection,
        vbuffer,
@@ -50,7 +50,12 @@ proc select*(m: MultistreamSelect,
              conn: Connection,
              proto: seq[string]):
              Future[string] {.async.} =
-  trace "initiating handshake", codec = m.codec
+  logScope:
+    codec = m.codec
+    protos = proto
+    oid = $conn.oid
+
+  trace "initiating handshake"
   ## select a remote protocol
   await conn.write(m.codec) # write handshake
   if proto.len() > 0:
@@ -119,8 +124,17 @@ proc list*(m: MultistreamSelect,
 
   result = list
 
-proc handle*(m: MultistreamSelect, conn: Connection, active: bool = false) {.async, gcsafe.} =
-  trace "handle: starting multistream handling", handshaked = active
+proc handle*(
+  m: MultistreamSelect,
+  conn: Connection,
+  active: bool = false) {.async, gcsafe.} =
+
+  logScope:
+    codec = m.codec
+    oid = $conn.oid
+    handshaked = active
+
+  trace "handle: starting multistream handling"
   var handshaked = active
   try:
     while not conn.atEof:

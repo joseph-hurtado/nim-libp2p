@@ -7,7 +7,7 @@
 ## This file may not be copied, modified, or distributed except according to
 ## those terms.
 
-import options
+import options, oids
 import chronos, chronicles, bearssl
 import ../protocol,
        ../../stream/streamseq,
@@ -43,9 +43,15 @@ method initStream*(s: SecureConn) =
 
   procCall Connection(s).initStream()
 
+  trace "initialized secure connection", oid = $s.oid,
+                                         streamOid = $s.stream.oid
+
 method close*(s: SecureConn) {.async.} =
   if not(isNil(s.stream)):
     await s.stream.close()
+
+  trace "closing secure connection", oid = $s.oid,
+                                     streamOid = $s.stream.oid
 
   await procCall Connection(s).close()
 

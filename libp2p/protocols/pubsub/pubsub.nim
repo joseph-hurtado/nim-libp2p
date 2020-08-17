@@ -18,6 +18,8 @@ import pubsubpeer,
        ../../peerinfo,
        ../../errors
 
+chronicles.formatIt(PubSubPeer): $it
+
 export PubSubPeer
 export PubSubObserver
 
@@ -66,9 +68,14 @@ method unsubscribePeer*(p: PubSub, peerId: PeerID) {.base.} =
   ## handle peer disconnects
   ##
 
+  if p.switch.isConnected(peerId):
+    return
+
   trace "unsubscribing pubsub peer", peer = $peerId
   if peerId in p.peers:
+    let peer = p.peers.getOrDefault(peerId)
     p.peers.del(peerId)
+    peer.subscribed = false
 
   libp2p_pubsub_peers.set(p.peers.len.int64)
 
@@ -87,7 +94,9 @@ proc send*(
     raise exc
   except CatchableError as exc:
     trace "exception sending pubsub message to peer", peer = $peer, msg = msg
-    p.unsubscribePeer(peer.peerId)
+    if not p.switch.isConnected(peer.peerId):
+      p.unsubscribePeer(peer.peerId)
+
     raise exc
 
 proc broadcast*(
@@ -109,6 +118,9 @@ proc sendSubs*(p: PubSub,
                topics: seq[string],
                subscribe: bool) {.async.} =
   ## send subscriptions to remote peer
+  ##
+
+  trace "sending subscriptions to peer", peer
   await p.send(
     peer,
     RPCMsg(
@@ -152,6 +164,22 @@ proc getOrCreatePeer*(
   libp2p_pubsub_peers.set(p.peers.len.int64)
   return pubSubPeer
 
+proc isSubscribed*(p: PubSub, peer: PeerID): bool =
+  let pubsubPeer = p.getOrCreatePeer(peer, p.codec)
+  if not pubsubPeer.isNil:
+    return pubsubPeer.subscribed
+
+method subscribePeer*(p: PubSub, peer: PeerID) {.base, async.} =
+  ## subscribe to remote peer to receive/send pubsub
+  ## messages
+  ##
+
+  trace "subscribing pubsubpeer", peer, topics = toSeq(p.topics.keys)
+  let pubsubPeer = p.getOrCreatePeer(peer, p.codec)
+  if p.topics.len > 0:
+    await p.sendSubs(pubsubPeer, toSeq(p.topics.keys), true)
+    pubsubPeer.subscribed = true
+
 method handleConn*(p: PubSub,
                    conn: Connection,
                    proto: string) {.base, async.} =
@@ -175,9 +203,9 @@ method handleConn*(p: PubSub,
     # call pubsub rpc handler
     await p.rpcHandler(peer, msgs)
 
-  let peer = p.getOrCreatePeer(conn.peerInfo.peerId, proto)
-  if p.topics.len > 0:
-    await p.sendSubs(peer, toSeq(p.topics.keys), true)
+  let peerId = conn.peerInfo.peerId
+  await p.subscribePeer(peerId)
+  let peer = p.getOrCreatePeer(peerId, proto)
 
   try:
     peer.handler = handler
@@ -189,17 +217,6 @@ method handleConn*(p: PubSub,
     trace "exception ocurred in pubsub handle", exc = exc.msg
   finally:
     await conn.close()
-
-method subscribePeer*(p: PubSub, peer: PeerID) {.base.} =
-  ## subscribe to remote peer to receive/send pubsub
-  ## messages
-  ##
-
-  let pubsubPeer = p.getOrCreatePeer(peer, p.codec)
-  if p.topics.len > 0:
-    asyncCheck p.sendSubs(pubsubPeer, toSeq(p.topics.keys), true)
-
-  pubsubPeer.subscribed = true
 
 method unsubscribe*(p: PubSub,
                     topics: seq[TopicPair]) {.base, async.} =

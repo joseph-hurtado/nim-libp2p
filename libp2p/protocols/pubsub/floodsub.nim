@@ -16,7 +16,8 @@ import pubsub,
        rpc/[messages, message],
        ../../stream/connection,
        ../../peerid,
-       ../../peerinfo
+       ../../peerinfo,
+       ../../switch
 
 logScope:
   topics = "floodsub"
@@ -33,6 +34,9 @@ method subscribeTopic*(f: FloodSub,
                        subscribe: bool,
                        peerId: PeerID) {.gcsafe, async.} =
   await procCall PubSub(f).subscribeTopic(topic, subscribe, peerId)
+
+  trace "about to subscribe topics for peer", peer = peerId
+
   let peer = f.peers.getOrDefault(peerId)
   if topic notin f.floodsub:
     f.floodsub[topic] = initHashSet[PubSubPeer]()
@@ -40,15 +44,18 @@ method subscribeTopic*(f: FloodSub,
   if subscribe:
     trace "adding subscription for topic", peer = peer.id, name = topic
     # subscribe the peer to the topic
-    f.floodsub[topic].incl(peer)
+    discard f.floodsub.addPeer(topic, peer)
   else:
     trace "removing subscription for topic", peer = peer.id, name = topic
     # unsubscribe the peer from the topic
-    f.floodsub[topic].excl(peer)
+    f.floodsub.removePeer(topic, peer)
 
 method unsubscribePeer*(f: FloodSub, peer: PeerID) =
   ## handle peer disconnects
   ##
+
+  if f.switch.isConnected(peer):
+    return
 
   trace "unsubscribing floodsub peer", peer = $peer
   let pubSubPeer = f.peers.getOrDefault(peer)

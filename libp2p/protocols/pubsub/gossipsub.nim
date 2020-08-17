@@ -21,7 +21,8 @@ import pubsub,
        ../../stream/connection,
        ../../peerid,
        ../../errors,
-       ../../utility
+       ../../utility,
+       ../../switch
 
 logScope:
   topics = "gossipsub"
@@ -110,7 +111,7 @@ proc rebalanceMesh(g: GossipSub, topic: string) {.async.} =
   var
     grafts, prunes: seq[PubSubPeer]
 
-  if g.mesh.peers(topic) < GossipSubDlo:
+  if g.mesh.peers(topic) > 0 and g.mesh.peers(topic) < GossipSubDlo:
     trace "replenishing mesh", peers = g.mesh.peers(topic)
     # replenish the mesh if we're below Dlo
     grafts = toSeq(
@@ -154,15 +155,17 @@ proc rebalanceMesh(g: GossipSub, topic: string) {.async.} =
       .set(g.mesh.peers(topic).int64, labelValues = [topic])
 
   # Send changes to peers after table updates to avoid stale state
-  discard await g.broadcast(
-    grafts,
-    RPCMsg(control: some(ControlMessage(graft: @[ControlGraft(topicID: topic)]))),
-    DefaultSendTimeout)
+  if grafts.len > 0:
+    discard await g.broadcast(
+      grafts,
+      RPCMsg(control: some(ControlMessage(graft: @[ControlGraft(topicID: topic)]))),
+      DefaultSendTimeout)
 
-  discard await g.broadcast(
-    prunes,
-    RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)]))),
-    DefaultSendTimeout)
+  if prunes.len > 0:
+    discard await g.broadcast(
+      prunes,
+      RPCMsg(control: some(ControlMessage(prune: @[ControlPrune(topicID: topic)]))),
+      DefaultSendTimeout)
 
   trace "mesh balanced, got peers", peers = g.mesh.peers(topic)
 
@@ -254,6 +257,9 @@ method unsubscribePeer*(g: GossipSub, peer: PeerID) =
   ## handle peer disconnects
   ##
 
+  if g.switch.isConnected(peer):
+    return
+
   trace "unsubscribing gossipsub peer", peer = $peer
   let pubSubPeer = g.peers.getOrDefault(peer)
   if pubSubPeer.isNil:
@@ -269,8 +275,6 @@ method unsubscribePeer*(g: GossipSub, peer: PeerID) =
   for t in toSeq(g.mesh.keys):
     g.mesh.removePeer(t, pubSubPeer)
 
-    echo "MESH ", g.mesh.getOrDefault(t)
-    echo "GOSSIPSUB ", g.gossipsub.getOrDefault(t)
     doAssert(g.gossipsub.peers(t) >= g.mesh.peers(t),
       "mesh peers can't exceed gossipsub")
 
@@ -300,6 +304,7 @@ method subscribeTopic*(g: GossipSub,
     peer = $peerId
     topic
 
+  trace "about to subscribe topics for peer", peer = peerId
   let peer = g.peers.getOrDefault(peerId)
   if peer == nil:
     # floodsub method logs a debug line already
@@ -309,6 +314,10 @@ method subscribeTopic*(g: GossipSub,
     trace "peer subscribed to topic"
     # subscribe remote peer to the topic
     discard g.gossipsub.addPeer(topic, peer)
+
+    when defined(libp2p_expensive_metrics):
+      libp2p_gossipsub_peers_per_topic_gossipsub
+        .set(g.gossipsub.peers(topic).int64, labelValues = [topic])
   else:
     trace "peer unsubscribed from topic"
     # unsubscribe remote peer from the topic
@@ -321,10 +330,6 @@ method subscribeTopic*(g: GossipSub,
         .set(g.mesh.peers(topic).int64, labelValues = [topic])
       libp2p_gossipsub_peers_per_topic_fanout
         .set(g.fanout.peers(topic).int64, labelValues = [topic])
-
-  when defined(libp2p_expensive_metrics):
-    libp2p_gossipsub_peers_per_topic_gossipsub
-      .set(g.gossipsub.peers(topic).int64, labelValues = [topic])
 
   trace "gossip peers", peers = g.gossipsub.peers(topic), topic
 

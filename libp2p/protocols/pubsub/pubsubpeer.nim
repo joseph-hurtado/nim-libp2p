@@ -7,7 +7,7 @@
 ## This file may not be copied, modified, or distributed except according to
 ## those terms.
 
-import std/[hashes, options, sequtils, strutils, tables]
+import std/[hashes, options, sequtils, strutils, tables, sets]
 import chronos, chronicles, nimcrypto/sha2, metrics
 import rpc/[messages, message, protobuf],
        timedcache,

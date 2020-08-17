@@ -471,6 +471,12 @@ proc muxerHandler(s: Switch, muxer: Muxer) {.async, gcsafe.} =
       await stream.close()
 
   try:
+    # store incoming connection
+    s.connManager.storeIncoming(muxer.connection)
+
+    # store muxer and muxed connection
+    s.connManager.storeMuxer(muxer)
+
     # once we got a muxed connection, attempt to
     # identify it
     await s.identify(stream)
@@ -483,12 +489,6 @@ proc muxerHandler(s: Switch, muxer: Muxer) {.async, gcsafe.} =
       peerId = peerInfo.peerId
     muxer.connection.peerInfo = peerInfo
 
-    # store incoming connection
-    s.connManager.storeIncoming(muxer.connection)
-
-    # store muxer and muxed connection
-    s.connManager.storeMuxer(muxer)
-
     trace "got new muxer", peer = shortLog(peerInfo)
 
     muxer.connection.closeEvent.wait()
@@ -496,7 +496,7 @@ proc muxerHandler(s: Switch, muxer: Muxer) {.async, gcsafe.} =
         asyncCheck s.triggerConnEvent(
           peerId, ConnEvent(kind: ConnEventKind.Disconnected))
 
-    asyncCheck s.triggerConnEvent(
+    await s.triggerConnEvent(
       peerId, ConnEvent(kind: ConnEventKind.Connected, incoming: true))
 
   except CancelledError as exc:
