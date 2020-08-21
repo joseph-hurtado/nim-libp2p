@@ -176,6 +176,9 @@ proc getSendConn(p: PubSubPeer): Future[Connection] {.async.} =
     if newConn.isNil:
       return nil
 
+    # TODO Here, we should notify pubsub that the peer connection was made and
+    #      the subscription tables need to be shipped over
+
     trace "Caching new send connection", oid = $newConn.oid
     p.sendConn = newConn
     asyncCheck p.handle(newConn) # start a read loop on the new connection
@@ -185,7 +188,7 @@ proc getSendConn(p: PubSubPeer): Future[Connection] {.async.} =
     if p.dialLock.locked:
       p.dialLock.release()
 
-proc send*(
+proc sendImpl(
   p: PubSubPeer,
   msg: RPCMsg,
   timeout: Duration = DefaultSendTimeout) {.async.} =
@@ -242,9 +245,19 @@ proc send*(
     # Next time sendConn is used, it will be have its close flag set and thus
     # will be recycled
     if not isNil(conn):
-      await conn.close()
+      await conn.close() # This will clean up the send connection
+    # TODO Cancellations stop here - where do they start?
 
-    raise exc
+    # We'll ask for a new send connection whenever possible
+    if p.sendConn == conn:
+      p.sendConn = nil
+
+proc send*(
+  p: PubSubPeer,
+  msg: RPCMsg,
+  timeout = DefaultSendTimeout) =
+
+  asyncCheck sendImpl(p, msg, timeout)
 
 proc `$`*(p: PubSubPeer): string =
   p.id

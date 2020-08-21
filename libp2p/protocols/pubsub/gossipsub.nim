@@ -229,14 +229,12 @@ proc heartbeat(g: GossipSub) {.async.} =
         g.replenishFanout(t)
 
       let peers = g.getGossipPeers()
-      var sent: seq[Future[void]]
       for peer, control in peers:
         g.peers.withValue(peer.peerId, pubsubPeer) do:
-          sent &= g.send(
+          g.send(
             pubsubPeer[],
             RPCMsg(control: some(control)),
             DefaultSendTimeout)
-      checkFutures(await allFinished(sent))
 
       g.mcache.shift() # shift the cache
     except CancelledError as exc:
@@ -448,16 +446,12 @@ method rpcHandler*(g: GossipSub,
 
       if respControl.graft.len > 0 or respControl.prune.len > 0 or
         respControl.ihave.len > 0:
-        try:
-          info "sending control message", msg = respControl
-          await g.send(
-            peer,
-            RPCMsg(control: some(respControl), messages: messages),
-            DefaultSendTimeout)
-        except CancelledError as exc:
-          raise exc
-        except CatchableError as exc:
-          trace "exception forwarding control messages", exc = exc.msg
+
+        info "sending control message", msg = respControl
+        g.send(
+          peer,
+          RPCMsg(control: some(respControl), messages: messages),
+          DefaultSendTimeout)
 
 method subscribe*(g: GossipSub,
                   topic: string,
